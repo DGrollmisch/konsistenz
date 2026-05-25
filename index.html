@@ -1,0 +1,1963 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Konsistenz</title>
+  <meta name="theme-color" content="#0a0a0a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Konsistenz">
+  <meta name="mobile-web-app-capable" content="yes">
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="./manifest.json">
+
+  <!-- Apple Touch Icon -->
+  <link rel="apple-touch-icon" href="./icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="./icon-192.png">
+
+  <!-- Tailwind via Play CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React 18 -->
+  <script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+
+  <!-- Babel Standalone für JSX im Browser -->
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.25.6/babel.min.js"></script>
+
+  <!-- Recharts (braucht prop-types) -->
+  <script src="https://cdn.jsdelivr.net/npm/prop-types@15.8.1/prop-types.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/recharts@2.12.7/umd/Recharts.js"></script>
+
+  <!-- Icons: inline definiert, keine CDN nötig -->
+
+  <style>
+    html, body {
+      background-color: #0a0a0a;
+      color: #f5f5f5;
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior-y: none;
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    }
+    #loading {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 1rem; background: #0a0a0a;
+    }
+    #loading .dot {
+      width: 8px; height: 8px; border-radius: 50%; background: #a3e635;
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.3; transform: scale(0.8); }
+      50% { opacity: 1; transform: scale(1.2); }
+    }
+  </style>
+</head>
+<body>
+  <div id="loading">
+    <div class="dot"></div>
+    <p style="color: #525252; font-size: 13px; letter-spacing: 0.05em; text-transform: uppercase;">Konsistenz wird geladen</p>
+  </div>
+  <div id="root"></div>
+
+  <!-- Service Worker für PWA-Installierbarkeit -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(err => console.warn('SW registration failed:', err));
+      });
+    }
+  </script>
+
+  <script type="text/babel" data-presets="react" data-type="module">
+    // Globals aus CDN holen
+    const { useState, useEffect, useMemo, useRef } = React;
+    const { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, BarChart, Bar, CartesianGrid } = Recharts;
+
+    // Icon-Komponente: rendert SVG aus einem Path-String
+    const Icon = ({ children, size = 24, className = '', ...props }) => (
+      React.createElement('svg', {
+        xmlns: 'http://www.w3.org/2000/svg',
+        width: size, height: size, viewBox: '0 0 24 24',
+        fill: 'none', stroke: 'currentColor', strokeWidth: 2,
+        strokeLinecap: 'round', strokeLinejoin: 'round',
+        className, ...props,
+      }, children)
+    );
+    const Pth = (d, key) => React.createElement('path', { key, d });
+    const Ln = (x1, y1, x2, y2, key) => React.createElement('line', { key, x1, y1, x2, y2 });
+    const Cir = (cx, cy, r, key) => React.createElement('circle', { key, cx, cy, r });
+    const Rct = (x, y, w, h, key, extra = {}) => React.createElement('rect', { key, x, y, width: w, height: h, ...extra });
+    const Pln = (points, key) => React.createElement('polyline', { key, points });
+    const Pgn = (points, key) => React.createElement('polygon', { key, points });
+
+    // Alle Icons als simple Wrapper - Pfade direkt aus Lucide
+    const Home = (p) => <Icon {...p}>{Pth('m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z', 1)}{Pln('9 22 9 12 15 12 15 22', 2)}</Icon>;
+    const Dumbbell = (p) => <Icon {...p}>{Pth('M14.4 14.4 9.6 9.6', 1)}{Pth('M18.657 21.485a2 2 0 1 1-2.829-2.828l-1.767 1.768a2 2 0 1 1-2.829-2.829l6.364-6.364a2 2 0 1 1 2.829 2.829l-1.768 1.767a2 2 0 1 1 2.828 2.829z', 2)}{Pth('m21.5 21.5-1.4-1.4', 3)}{Pth('M3.9 3.9 2.5 2.5', 4)}{Pth('M6.404 12.768a2 2 0 1 1-2.829-2.829l1.768-1.767a2 2 0 1 1-2.828-2.829l2.828-2.828a2 2 0 1 1 2.829 2.828l1.767-1.768a2 2 0 1 1 2.829 2.829z', 5)}</Icon>;
+    const Calendar = (p) => <Icon {...p}>{Pth('M8 2v4', 1)}{Pth('M16 2v4', 2)}{Rct(3, 4, 18, 18, 3, { rx: 2 })}{Pth('M3 10h18', 4)}</Icon>;
+    const Heart = (p) => <Icon {...p}>{Pth('M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z', 1)}</Icon>;
+    const Settings = (p) => <Icon {...p}>{Pth('M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2', 1)}{Cir(12, 12, 3, 2)}</Icon>;
+    const Plus = (p) => <Icon {...p}>{Pth('M5 12h14', 1)}{Pth('M12 5v14', 2)}</Icon>;
+    const Check = (p) => <Icon {...p}>{Pth('M20 6 9 17l-5-5', 1)}</Icon>;
+    const ChevronLeft = (p) => <Icon {...p}>{Pth('m15 18-6-6 6-6', 1)}</Icon>;
+    const Trash2 = (p) => <Icon {...p}>{Pth('M3 6h18', 1)}{Pth('M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6', 2)}{Pth('M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2', 3)}{Ln(10, 11, 10, 17, 4)}{Ln(14, 11, 14, 17, 5)}</Icon>;
+    const Edit3 = (p) => <Icon {...p}>{Pth('M12 20h9', 1)}{Pth('M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z', 2)}</Icon>;
+    const X = (p) => <Icon {...p}>{Pth('M18 6 6 18', 1)}{Pth('m6 6 12 12', 2)}</Icon>;
+    const Download = (p) => <Icon {...p}>{Pth('M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 1)}{Pln('7 10 12 15 17 10', 2)}{Ln(12, 15, 12, 3, 3)}</Icon>;
+    const Upload = (p) => <Icon {...p}>{Pth('M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 1)}{Pln('17 8 12 3 7 8', 2)}{Ln(12, 3, 12, 15, 3)}</Icon>;
+    const TrendingUp = (p) => <Icon {...p}>{Pln('22 7 13.5 15.5 8.5 10.5 2 17', 1)}{Pln('16 7 22 7 22 13', 2)}</Icon>;
+    const MapPin = (p) => <Icon {...p}>{Pth('M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z', 1)}{Cir(12, 10, 3, 2)}</Icon>;
+    const Play = (p) => <Icon {...p}>{Pgn('5 3 19 12 5 21 5 3', 1)}</Icon>;
+    const SquareIcon = (p) => <Icon {...p}>{Rct(3, 3, 18, 18, 1, { rx: 2 })}</Icon>;
+    const Pause = (p) => <Icon {...p}>{Rct(6, 4, 4, 16, 1, { rx: 1 })}{Rct(14, 4, 4, 16, 2, { rx: 1 })}</Icon>;
+    const Share2 = (p) => <Icon {...p}>{Cir(18, 5, 3, 1)}{Cir(6, 12, 3, 2)}{Cir(18, 19, 3, 3)}{Ln(8.59, 13.51, 15.42, 17.49, 4)}{Ln(15.41, 6.51, 8.59, 10.49, 5)}</Icon>;
+    const BarChart3 = (p) => <Icon {...p}>{Pth('M3 3v18h18', 1)}{Pth('M18 17V9', 2)}{Pth('M13 17V5', 3)}{Pth('M8 17v-3', 4)}</Icon>;
+
+    /* === APP CODE === */
+    
+// ---------- Storage ----------
+const STORAGE_KEY = 'konsistenz_v2';
+
+const defaultTemplates = [
+  {
+    id: 'a',
+    name: 'Push & Arme',
+    day: 'A',
+    type: 'strength',
+    exercises: [
+      { id: 'pu', name: 'Push-ups', defaultSets: 3, defaultReps: 'max', usesWeight: false, note: 'Saubere Technik vor Anzahl' },
+      { id: 'sp', name: 'Schulterdrücken Kettlebell', defaultSets: 4, defaultReps: 8, usesWeight: true, note: '' },
+      { id: 'bc', name: 'Bizeps-Curls Hantel', defaultSets: 4, defaultReps: 10, usesWeight: true, note: '' },
+      { id: 'tk', name: 'Trizeps Kickback Hantel', defaultSets: 3, defaultReps: 12, usesWeight: true, note: '' },
+      { id: 'pp', name: 'Pike Push-ups', defaultSets: 3, defaultReps: 8, usesWeight: false, note: 'Schulter-betont' },
+      { id: 'pl', name: 'Plank', defaultSets: 3, defaultReps: '45s', usesWeight: false, note: '' },
+    ],
+  },
+  {
+    id: 'b',
+    name: 'Kettlebell Athletik',
+    day: 'B',
+    type: 'strength',
+    exercises: [
+      { id: 'sw', name: 'Kettlebell Swings', defaultSets: 5, defaultReps: 15, usesWeight: true, note: 'Hüfte explosiv' },
+      { id: 'gs', name: 'Goblet Squat', defaultSets: 4, defaultReps: 10, usesWeight: true, note: '' },
+      { id: 'cp', name: 'Clean & Press einarmig', defaultSets: 4, defaultReps: 6, usesWeight: true, note: 'Pro Seite' },
+      { id: 'sn', name: 'KB Snatch', defaultSets: 3, defaultReps: 8, usesWeight: true, note: 'Pro Seite' },
+      { id: 'fc', name: "Farmer's Carry", defaultSets: 4, defaultReps: '40s', usesWeight: true, note: 'Schwer, aufrecht' },
+    ],
+  },
+  {
+    id: 'c',
+    name: 'Core & Mobility',
+    day: 'C',
+    type: 'strength',
+    exercises: [
+      { id: 'db', name: 'Dead Bug', defaultSets: 3, defaultReps: 12, usesWeight: false, note: '' },
+      { id: 'hh', name: 'Hollow Hold', defaultSets: 3, defaultReps: '30s', usesWeight: false, note: '' },
+      { id: 'rt', name: 'Russian Twist KB', defaultSets: 3, defaultReps: 20, usesWeight: true, note: '' },
+      { id: 'sp2', name: 'Side Plank', defaultSets: 3, defaultReps: '30s', usesWeight: false, note: 'Pro Seite' },
+      { id: 'bd', name: 'Bird Dog', defaultSets: 3, defaultReps: 10, usesWeight: false, note: 'Pro Seite' },
+      { id: 'mf', name: 'Mobility Flow', defaultSets: 1, defaultReps: '10min', usesWeight: false, note: 'Hüfte, BWS, Schulter' },
+    ],
+  },
+  {
+    id: 'd',
+    name: 'Hybrid Pull',
+    day: 'D',
+    type: 'strength',
+    exercises: [
+      { id: 'kd', name: 'KB Deadlift', defaultSets: 4, defaultReps: 10, usesWeight: true, note: '' },
+      { id: 'br', name: 'Bent-over Row Hantel', defaultSets: 4, defaultReps: 10, usesWeight: true, note: 'Rücken gerade' },
+      { id: 'rr', name: 'Renegade Row', defaultSets: 3, defaultReps: 8, usesWeight: true, note: 'Pro Seite' },
+      { id: 'pu2', name: 'Push-ups', defaultSets: 3, defaultReps: 'max', usesWeight: false, note: '' },
+      { id: 'hl', name: 'Hang & Hollow', defaultSets: 3, defaultReps: '30s', usesWeight: false, note: 'Wenn möglich an Türrahmen, sonst Hollow Hold' },
+      { id: 'sl', name: 'Single-leg Deadlift', defaultSets: 3, defaultReps: 8, usesWeight: true, note: 'Pro Seite' },
+    ],
+  },
+  {
+    id: 'run',
+    name: 'Laufen',
+    day: 'R',
+    type: 'run',
+    exercises: [],
+  },
+];
+
+const loadState = () => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) { return null; }
+};
+
+const saveState = (state) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch (e) {
+    console.error('Speichern fehlgeschlagen', e);
+  }
+};
+
+const initialState = () => {
+  const loaded = loadState();
+  if (loaded) {
+    // Migration: alte Templates ohne 'type' bekommen 'strength'
+    loaded.templates = loaded.templates.map(t => t.type ? t : { ...t, type: 'strength' });
+    if (!loaded.templates.find(t => t.id === 'run')) {
+      loaded.templates.push(defaultTemplates.find(t => t.id === 'run'));
+    }
+    if (!loaded.runs) loaded.runs = [];
+    // Migration: Sets als Zahlen -> Sets als {reps, ts}
+    if (loaded.pushupDays) {
+      Object.keys(loaded.pushupDays).forEach(date => {
+        const day = loaded.pushupDays[date];
+        if (day.sets && day.sets.length > 0 && typeof day.sets[0] === 'number') {
+          day.sets = day.sets.map(n => ({ reps: n, ts: 0 }));
+        }
+      });
+    }
+    return loaded;
+  }
+  return {
+    pushupDays: {},
+    workouts: [],
+    runs: [],
+    templates: defaultTemplates,
+    checkIns: [],
+    personalRecords: {},
+  };
+};
+
+// ---------- Date Helpers ----------
+const todayKey = () => new Date().toISOString().slice(0, 10);
+const formatDateDE = (key) => new Date(key).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+const formatDateShort = (key) => new Date(key).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+
+const getWeekStart = (date = new Date()) => {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().slice(0, 10);
+};
+
+const getDaysUntilAugust = () => {
+  const today = new Date();
+  const aug = new Date(today.getFullYear(), 7, 1);
+  if (aug < today) aug.setFullYear(aug.getFullYear() + 1);
+  return Math.ceil((aug - today) / (1000 * 60 * 60 * 24));
+};
+
+const formatDuration = (seconds) => {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+};
+
+const formatPace = (secondsPerKm) => {
+  if (!isFinite(secondsPerKm) || secondsPerKm <= 0) return '-';
+  const m = Math.floor(secondsPerKm / 60);
+  const s = Math.floor(secondsPerKm % 60);
+  return `${m}:${String(s).padStart(2, '0')}/km`;
+};
+
+// Push-up Set Helpers
+const sumReps = (sets) => (sets || []).reduce((a, s) => a + (typeof s === 'number' ? s : (s?.reps || 0)), 0);
+const formatTime = (ts) => {
+  if (!ts) return '';
+  return new Date(ts).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+};
+
+// ---------- Streak ----------
+const calculateStreak = (workouts, runs, pushupDays) => {
+  const activeDays = new Set();
+  workouts.filter(w => w.done).forEach(w => activeDays.add(w.date));
+  runs.forEach(r => activeDays.add(r.date));
+  Object.entries(pushupDays).forEach(([date, day]) => {
+    const total = sumReps(day.sets);
+    if (total >= 100 || day.done) activeDays.add(date);
+  });
+
+  let streak = 0;
+  const d = new Date();
+  for (let i = 0; i < 365; i++) {
+    const key = d.toISOString().slice(0, 10);
+    if (activeDays.has(key)) streak++;
+    else if (i > 0) break;
+    d.setDate(d.getDate() - 1);
+  }
+  return streak;
+};
+
+// ---------- Geo Helpers ----------
+const haversine = (lat1, lon1, lat2, lon2) => {
+  const R = 6371000;
+  const toRad = (x) => x * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+};
+
+// ---------- UI Primitives ----------
+const Card = ({ children, className = '' }) => (
+  <div className={`bg-neutral-900 border border-neutral-800 rounded-2xl p-5 ${className}`}>{children}</div>
+);
+
+const Button = ({ children, onClick, variant = 'primary', className = '', disabled = false, type = 'button' }) => {
+  const base = 'font-medium rounded-xl px-5 py-3 text-base transition-all active:scale-95 disabled:opacity-40 disabled:active:scale-100';
+  const variants = {
+    primary: 'bg-lime-400 text-neutral-950 hover:bg-lime-300',
+    secondary: 'bg-neutral-800 text-neutral-100 hover:bg-neutral-700',
+    ghost: 'bg-transparent text-neutral-300 hover:bg-neutral-800',
+    danger: 'bg-red-950 text-red-300 hover:bg-red-900',
+    orange: 'bg-orange-500 text-neutral-950 hover:bg-orange-400',
+  };
+  return (
+    <button type={type} onClick={onClick} disabled={disabled} className={`${base} ${variants[variant]} ${className}`}>
+      {children}
+    </button>
+  );
+};
+
+const Input = ({ value, onChange, placeholder, type = 'text', className = '', inputMode }) => (
+  <input
+    type={type}
+    inputMode={inputMode}
+    value={value ?? ''}
+    onChange={(e) => onChange(e.target.value)}
+    placeholder={placeholder}
+    className={`bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-neutral-100 text-base w-full focus:border-lime-400 focus:outline-none ${className}`}
+  />
+);
+
+const Slider = ({ value, onChange, label }) => (
+  <div>
+    <div className="flex justify-between mb-2">
+      <span className="text-sm text-neutral-400">{label}</span>
+      <span className="text-sm font-semibold text-lime-400">{value} / 10</span>
+    </div>
+    <input
+      type="range" min="1" max="10" value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      className="w-full accent-lime-400"
+    />
+  </div>
+);
+
+// ---------- Mini Route Map (SVG) ----------
+const RouteMap = ({ points, className = '' }) => {
+  if (!points || points.length < 2) {
+    return <div className={`bg-neutral-800 rounded-xl flex items-center justify-center text-neutral-500 text-sm ${className}`}>Keine Route</div>;
+  }
+  const lats = points.map(p => p.lat);
+  const lons = points.map(p => p.lon);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLon = Math.min(...lons), maxLon = Math.max(...lons);
+  const padLat = (maxLat - minLat) * 0.1 || 0.001;
+  const padLon = (maxLon - minLon) * 0.1 || 0.001;
+  const w = 400, h = 200;
+  const project = (lat, lon) => {
+    const x = ((lon - (minLon - padLon)) / ((maxLon + padLon) - (minLon - padLon))) * w;
+    const y = h - ((lat - (minLat - padLat)) / ((maxLat + padLat) - (minLat - padLat))) * h;
+    return [x, y];
+  };
+  const d = points.map((p, i) => {
+    const [x, y] = project(p.lat, p.lon);
+    return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const [sx, sy] = project(points[0].lat, points[0].lon);
+  const [ex, ey] = project(points[points.length - 1].lat, points[points.length - 1].lon);
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className={`bg-neutral-800 rounded-xl ${className}`} preserveAspectRatio="xMidYMid meet">
+      <path d={d} stroke="#a3e635" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={sx} cy={sy} r="5" fill="#84cc16" />
+      <circle cx={ex} cy={ey} r="5" fill="#ef4444" />
+    </svg>
+  );
+};
+
+// ---------- Run Tracker ----------
+const RunTracker = ({ state, setState, onBack }) => {
+  const [status, setStatus] = useState('idle'); // idle | active | paused | finished
+  const [points, setPoints] = useState([]);
+  const [distance, setDistance] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+  const [maxSpeed, setMaxSpeed] = useState(0);
+  const [error, setError] = useState(null);
+  const watchIdRef = useRef(null);
+  const timerRef = useRef(null);
+  const startTimeRef = useRef(null);
+  const pausedAtRef = useRef(0);
+  const wakeLockRef = useRef(null);
+
+  const requestWakeLock = async () => {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLockRef.current = await navigator.wakeLock.request('screen');
+      }
+    } catch (e) {
+      console.warn('Wake Lock fehlgeschlagen', e);
+    }
+  };
+
+  const releaseWakeLock = async () => {
+    try { await wakeLockRef.current?.release(); } catch (e) {}
+    wakeLockRef.current = null;
+  };
+
+  const start = () => {
+    if (!navigator.geolocation) {
+      setError('GPS nicht verfügbar.');
+      return;
+    }
+    setStatus('active');
+    startTimeRef.current = Date.now();
+    pausedAtRef.current = 0;
+    setPoints([]);
+    setDistance(0);
+    setElapsed(0);
+    setMaxSpeed(0);
+    requestWakeLock();
+
+    timerRef.current = setInterval(() => {
+      setElapsed((Date.now() - startTimeRef.current - pausedAtRef.current) / 1000);
+    }, 500);
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude, longitude, speed, accuracy } = pos.coords;
+        if (accuracy > 30) return; // schlechte Punkte verwerfen
+        const newPoint = { lat: latitude, lon: longitude, t: Date.now() };
+        setPoints((prev) => {
+          const next = [...prev, newPoint];
+          if (prev.length > 0) {
+            const last = prev[prev.length - 1];
+            const d = haversine(last.lat, last.lon, latitude, longitude);
+            if (d > 1 && d < 100) {
+              setDistance((curr) => curr + d);
+            }
+          }
+          return next;
+        });
+        if (speed && speed > maxSpeed) setMaxSpeed(speed);
+      },
+      (err) => setError(`GPS Fehler: ${err.message}`),
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
+    );
+  };
+
+  const pause = () => {
+    setStatus('paused');
+    clearInterval(timerRef.current);
+    if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
+    pausedAtRef.current = pausedAtRef.current + (Date.now() - startTimeRef.current - pausedAtRef.current - elapsed * 1000);
+  };
+
+  const resume = () => {
+    setStatus('active');
+    const pauseStart = Date.now();
+    startTimeRef.current = Date.now() - elapsed * 1000;
+    timerRef.current = setInterval(() => {
+      setElapsed((Date.now() - startTimeRef.current) / 1000);
+    }, 500);
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude, longitude, speed, accuracy } = pos.coords;
+        if (accuracy > 30) return;
+        setPoints((prev) => {
+          const next = [...prev, { lat: latitude, lon: longitude, t: Date.now() }];
+          if (prev.length > 0) {
+            const last = prev[prev.length - 1];
+            const d = haversine(last.lat, last.lon, latitude, longitude);
+            if (d > 1 && d < 100) setDistance((curr) => curr + d);
+          }
+          return next;
+        });
+        if (speed && speed > maxSpeed) setMaxSpeed(speed);
+      },
+      (err) => setError(`GPS Fehler: ${err.message}`),
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
+    );
+  };
+
+  const stop = () => {
+    clearInterval(timerRef.current);
+    if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
+    releaseWakeLock();
+    setStatus('finished');
+  };
+
+  const save = () => {
+    const run = {
+      id: `r_${Date.now()}`,
+      date: todayKey(),
+      startedAt: startTimeRef.current,
+      distance,
+      duration: elapsed,
+      points,
+      maxSpeed,
+      note: '',
+    };
+    setState({ ...state, runs: [...state.runs, run] });
+    onBack();
+  };
+
+  const discard = () => {
+    if (window.confirm('Lauf verwerfen?')) onBack();
+  };
+
+  useEffect(() => {
+    return () => {
+      clearInterval(timerRef.current);
+      if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
+      releaseWakeLock();
+    };
+  }, []);
+
+  const km = distance / 1000;
+  const pace = km > 0 ? elapsed / km : 0;
+  const maxKmh = maxSpeed * 3.6;
+
+  return (
+    <div className="pb-24">
+      <div className="sticky top-0 bg-neutral-950 z-10 pt-6 pb-3 -mx-4 px-4 border-b border-neutral-900">
+        <div className="flex items-center gap-3">
+          <button onClick={status === 'idle' ? onBack : () => window.confirm('Lauf abbrechen?') && onBack()} className="text-neutral-400">
+            <ChevronLeft size={24} />
+          </button>
+          <h1 className="text-xl font-bold text-neutral-100">Laufen</h1>
+          {status === 'active' && <span className="ml-auto flex items-center gap-1.5 text-xs text-lime-400"><span className="w-2 h-2 bg-lime-400 rounded-full animate-pulse" /> live</span>}
+        </div>
+      </div>
+
+      {error && <Card className="mt-4 border-red-900"><p className="text-red-400 text-sm">{error}</p></Card>}
+
+      <div className="pt-6 space-y-4">
+        <Card>
+          <p className="text-xs text-neutral-500 uppercase tracking-wider mb-1">Distanz</p>
+          <p className="text-5xl font-bold text-neutral-100 tabular-nums">{km.toFixed(2)}<span className="text-neutral-600 text-2xl"> km</span></p>
+        </Card>
+
+        <div className="grid grid-cols-3 gap-3">
+          <Card>
+            <p className="text-xs text-neutral-500 uppercase tracking-wider mb-1">Zeit</p>
+            <p className="text-xl font-bold text-neutral-100 tabular-nums">{formatDuration(elapsed)}</p>
+          </Card>
+          <Card>
+            <p className="text-xs text-neutral-500 uppercase tracking-wider mb-1">Pace</p>
+            <p className="text-xl font-bold text-neutral-100 tabular-nums">{formatPace(pace)}</p>
+          </Card>
+          <Card>
+            <p className="text-xs text-neutral-500 uppercase tracking-wider mb-1">Max</p>
+            <p className="text-xl font-bold text-neutral-100 tabular-nums">{maxKmh.toFixed(1)}<span className="text-neutral-600 text-sm"> km/h</span></p>
+          </Card>
+        </div>
+
+        {points.length > 1 && (
+          <Card>
+            <p className="text-xs text-neutral-500 uppercase tracking-wider mb-3">Route</p>
+            <RouteMap points={points} className="w-full h-48" />
+            <p className="text-xs text-neutral-600 mt-2">{points.length} Punkte</p>
+          </Card>
+        )}
+
+        <div className="fixed bottom-20 left-0 right-0 px-4">
+          <div className="max-w-md mx-auto flex gap-2">
+            {status === 'idle' && (
+              <Button onClick={start} variant="primary" className="w-full shadow-2xl shadow-lime-400/20">
+                <span className="flex items-center justify-center gap-2"><Play size={20} /> Start</span>
+              </Button>
+            )}
+            {status === 'active' && (
+              <>
+                <Button onClick={pause} variant="secondary" className="flex-1">
+                  <span className="flex items-center justify-center gap-2"><Pause size={20} /> Pause</span>
+                </Button>
+                <Button onClick={stop} variant="danger" className="flex-1">
+                  <span className="flex items-center justify-center gap-2"><SquareIcon size={18} /> Stopp</span>
+                </Button>
+              </>
+            )}
+            {status === 'paused' && (
+              <>
+                <Button onClick={resume} variant="primary" className="flex-1">
+                  <span className="flex items-center justify-center gap-2"><Play size={20} /> Weiter</span>
+                </Button>
+                <Button onClick={stop} variant="danger" className="flex-1">
+                  <span className="flex items-center justify-center gap-2"><SquareIcon size={18} /> Stopp</span>
+                </Button>
+              </>
+            )}
+            {status === 'finished' && (
+              <>
+                <Button onClick={discard} variant="secondary" className="flex-1">Verwerfen</Button>
+                <Button onClick={save} variant="primary" className="flex-1">Speichern</Button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {status === 'idle' && (
+          <p className="text-center text-neutral-600 text-sm px-4 pt-6">
+            Beim Lauf bleibt der Bildschirm an. Lade dein Handy vorher.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ---------- Run Detail ----------
+const RunDetail = ({ run, onBack, onDelete, onExport }) => {
+  const km = run.distance / 1000;
+  const pace = km > 0 ? run.duration / km : 0;
+  const maxKmh = (run.maxSpeed || 0) * 3.6;
+
+  return (
+    <div className="pb-24">
+      <div className="flex items-center gap-3 pt-6 pb-4">
+        <button onClick={onBack} className="text-neutral-400"><ChevronLeft size={24} /></button>
+        <div>
+          <p className="text-xs text-neutral-500 uppercase tracking-wider">{formatDateDE(run.date)}</p>
+          <h1 className="text-xl font-bold text-neutral-100">Lauf</h1>
+        </div>
+      </div>
+
+      <Card className="mb-3">
+        <p className="text-xs text-neutral-500 uppercase tracking-wider mb-1">Distanz</p>
+        <p className="text-5xl font-bold text-neutral-100 tabular-nums">{km.toFixed(2)}<span className="text-neutral-600 text-2xl"> km</span></p>
+      </Card>
+
+      <div className="grid grid-cols-3 gap-3 mb-3">
+        <Card><p className="text-xs text-neutral-500 mb-1">Zeit</p><p className="text-xl font-bold text-neutral-100 tabular-nums">{formatDuration(run.duration)}</p></Card>
+        <Card><p className="text-xs text-neutral-500 mb-1">Pace</p><p className="text-xl font-bold text-neutral-100 tabular-nums">{formatPace(pace)}</p></Card>
+        <Card><p className="text-xs text-neutral-500 mb-1">Max</p><p className="text-xl font-bold text-neutral-100 tabular-nums">{maxKmh.toFixed(1)}</p></Card>
+      </div>
+
+      {run.points && run.points.length > 1 && (
+        <Card className="mb-3">
+          <p className="text-xs text-neutral-500 uppercase tracking-wider mb-3">Route</p>
+          <RouteMap points={run.points} className="w-full h-56" />
+        </Card>
+      )}
+
+      <div className="space-y-2">
+        <Button onClick={() => onExport(run)} variant="orange" className="w-full">
+          <span className="flex items-center justify-center gap-2"><Share2 size={18} /> Als GPX für Strava exportieren</span>
+        </Button>
+        <Button onClick={() => { if (window.confirm('Lauf löschen?')) onDelete(run.id); }} variant="danger" className="w-full">
+          <span className="flex items-center justify-center gap-2"><Trash2 size={18} /> Löschen</span>
+        </Button>
+      </div>
+    </div>
+  );
+};
+
+// ---------- Dashboard ----------
+const Dashboard = ({ state, setState, onStartWorkout, onStartRun, onShowRun }) => {
+  const today = todayKey();
+  const day = state.pushupDays[today] || { sets: [], done: false };
+  const total = sumReps(day.sets);
+  const remaining = Math.max(0, 100 - total);
+  const pct = Math.min(100, Math.round((total / 100) * 100));
+  const [newSet, setNewSet] = useState('');
+  const daysToAugust = getDaysUntilAugust();
+  const streak = useMemo(() => calculateStreak(state.workouts, state.runs, state.pushupDays), [state]);
+
+  const todaysWorkouts = state.workouts.filter(w => w.date === today);
+  const todaysRuns = state.runs.filter(r => r.date === today);
+
+  const addSetWithReps = (reps) => {
+    if (!reps || reps < 1) return;
+    const newEntry = { reps, ts: Date.now() };
+    setState({ ...state, pushupDays: { ...state.pushupDays, [today]: { ...day, sets: [...(day.sets || []), newEntry] } } });
+  };
+
+  const addSet = () => {
+    const n = parseInt(newSet, 10);
+    if (!n || n < 1) return;
+    addSetWithReps(n);
+    setNewSet('');
+  };
+
+  const removeSet = (idx) => {
+    const sets = (day.sets || []).filter((_, i) => i !== idx);
+    setState({ ...state, pushupDays: { ...state.pushupDays, [today]: { ...day, sets } } });
+  };
+
+  const markDone = () => {
+    setState({ ...state, pushupDays: { ...state.pushupDays, [today]: { ...day, done: !day.done } } });
+  };
+
+  // Sets nach Zeit sortiert für Anzeige (älteste zuerst, also chronologisch)
+  const sortedSets = [...(day.sets || [])]
+    .map((s, originalIdx) => ({
+      ...(typeof s === 'number' ? { reps: s, ts: 0 } : s),
+      originalIdx,
+    }))
+    .sort((a, b) => (a.ts || 0) - (b.ts || 0));
+
+  // Cumulative progression für Visualisierung
+  let cum = 0;
+  const progression = sortedSets.map(s => {
+    cum += s.reps;
+    return { ...s, cum };
+  });
+
+  return (
+    <div className="space-y-4 pb-24">
+      <div className="pt-6 pb-2">
+        <p className="text-neutral-500 text-sm uppercase tracking-wider">{formatDateDE(today)}</p>
+        <div className="flex items-baseline gap-3 mt-1">
+          <h1 className="text-3xl font-bold text-neutral-100">Heute</h1>
+          {streak > 0 && <span className="text-lime-400 text-sm font-semibold">{streak} Tage Streak</span>}
+        </div>
+        <p className="text-xs text-neutral-600 mt-2">{daysToAugust} Tage bis August</p>
+      </div>
+
+      <Card>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-semibold text-neutral-100">Push-ups heute</h2>
+          <span className="text-2xl font-bold text-lime-400 tabular-nums">{total}<span className="text-neutral-600 text-base"> / 100</span></span>
+        </div>
+        <p className="text-xs text-neutral-500 mb-3">
+          {total === 0 ? '100 bis zum Ziel' : total >= 100 ? 'Ziel erreicht' : `noch ${remaining}`}
+        </p>
+
+        <div className="h-3 bg-neutral-800 rounded-full overflow-hidden mb-4">
+          <div className="h-full bg-lime-400 transition-all duration-500" style={{ width: `${pct}%` }} />
+        </div>
+
+        {progression.length > 0 && (
+          <div className="space-y-1.5 mb-4">
+            {progression.map((s, i) => (
+              <div key={s.originalIdx} className="flex items-center gap-3 bg-neutral-800/60 rounded-lg px-3 py-2">
+                <span className="text-xs text-neutral-500 tabular-nums w-12">{formatTime(s.ts) || '-'}</span>
+                <span className="text-neutral-100 font-medium tabular-nums w-10">{s.reps}</span>
+                <div className="flex-1 h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+                  <div className="h-full bg-lime-400/60" style={{ width: `${Math.min(100, (s.cum / 100) * 100)}%` }} />
+                </div>
+                <span className="text-xs text-neutral-500 tabular-nums w-10 text-right">{Math.min(100, s.cum)}</span>
+                <button onClick={() => removeSet(s.originalIdx)} className="text-neutral-600 hover:text-red-400 -mr-1">
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex gap-2 mb-3">
+          <Input value={newSet} onChange={setNewSet} placeholder="Wdh." type="number" inputMode="numeric" />
+          <Button onClick={addSet} variant="secondary"><Plus size={20} /></Button>
+        </div>
+
+        <div className="flex gap-2 mb-3">
+          {[10, 15, 20, 25].map(n => (
+            <button
+              key={n}
+              onClick={() => addSetWithReps(n)}
+              className="flex-1 bg-neutral-800 text-neutral-300 rounded-xl py-2 text-sm hover:bg-neutral-700"
+            >
+              +{n}
+            </button>
+          ))}
+        </div>
+
+        <Button onClick={markDone} variant={day.done ? 'secondary' : 'primary'} className="w-full">
+          {day.done ? <span className="flex items-center justify-center gap-2"><Check size={18} /> Heute erledigt</span> : 'Als erledigt markieren'}
+        </Button>
+      </Card>
+
+      <Card>
+        <h2 className="text-lg font-semibold text-neutral-100 mb-3">Aktivität</h2>
+        {todaysRuns.length > 0 && (
+          <div className="mb-3 space-y-2">
+            {todaysRuns.map(r => (
+              <button
+                key={r.id}
+                onClick={() => onShowRun(r.id)}
+                className="w-full text-left bg-neutral-800 hover:bg-neutral-700 rounded-lg px-3 py-2.5 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-3">
+                  <Check size={18} className="text-lime-400" />
+                  <span className="text-neutral-100 text-sm">Lauf · {(r.distance / 1000).toFixed(2)} km · {formatDuration(r.duration)}</span>
+                </div>
+                <ChevronLeft size={16} className="text-neutral-500 rotate-180" />
+              </button>
+            ))}
+          </div>
+        )}
+        {todaysWorkouts.filter(w => w.done).map(w => (
+          <div key={w.id} className="flex items-center gap-3 text-lime-400 mb-2">
+            <Check size={20} />
+            <span>{state.templates.find(t => t.id === w.templateId)?.name}</span>
+          </div>
+        ))}
+        <p className="text-sm text-neutral-400 mb-3 mt-2">Was machst du heute?</p>
+        <div className="space-y-2">
+          {state.templates.map(t => (
+            <button
+              key={t.id}
+              onClick={() => t.type === 'run' ? onStartRun() : onStartWorkout(t.id)}
+              className="w-full text-left bg-neutral-800 hover:bg-neutral-700 rounded-xl p-4 flex items-center justify-between"
+            >
+              <div className="flex items-center gap-3">
+                {t.type === 'run' ? <MapPin size={18} className="text-orange-400" /> : <Dumbbell size={18} className="text-neutral-500" />}
+                <div>
+                  <p className="text-neutral-100 font-medium">{t.name}</p>
+                  <p className="text-xs text-neutral-500">{t.type === 'run' ? 'GPS-Tracking' : `Tag ${t.day} · ${t.exercises.length} Übungen`}</p>
+                </div>
+              </div>
+              <ChevronLeft size={20} className="text-neutral-500 rotate-180" />
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      <p className="text-center text-neutral-600 text-sm px-4 pt-2">
+        {total === 0 ? 'Saubere Technik vor Ego.' : total < 100 ? 'Heute nur Minimum? Auch okay.' : 'Solider Tag.'}
+      </p>
+    </div>
+  );
+};
+
+// ---------- Workout Session ----------
+const WorkoutSession = ({ state, setState, templateId, onBack, onExportWorkout }) => {
+  const template = state.templates.find(t => t.id === templateId);
+  const today = todayKey();
+  const existing = state.workouts.find(w => w.date === today && w.templateId === templateId);
+
+  const [logs, setLogs] = useState(() => {
+    if (existing) return existing.exercises;
+    return template.exercises.map(ex => ({
+      exerciseId: ex.id,
+      name: ex.name,
+      sets: Array.from({ length: ex.defaultSets }, () => ({
+        reps: typeof ex.defaultReps === 'number' ? ex.defaultReps : '',
+        weight: ex.usesWeight ? '' : null,
+        rpe: 7,
+      })),
+      note: '',
+    }));
+  });
+  const [startTime] = useState(existing?.startedAt || Date.now());
+  const [levelUps, setLevelUps] = useState([]);
+  const [savedWorkout, setSavedWorkout] = useState(null);
+
+  const updateSet = (exIdx, setIdx, field, value) => {
+    const next = [...logs];
+    next[exIdx].sets[setIdx][field] = value;
+    setLogs(next);
+  };
+
+  const addSet = (exIdx) => {
+    const next = [...logs];
+    const last = next[exIdx].sets[next[exIdx].sets.length - 1] || { reps: '', weight: '', rpe: 7 };
+    next[exIdx].sets.push({ ...last });
+    setLogs(next);
+  };
+
+  const removeSet = (exIdx, setIdx) => {
+    const next = [...logs];
+    next[exIdx].sets.splice(setIdx, 1);
+    setLogs(next);
+  };
+
+  const updateNote = (exIdx, note) => {
+    const next = [...logs];
+    next[exIdx].note = note;
+    setLogs(next);
+  };
+
+  const checkLevelUps = (workoutLogs) => {
+    const records = { ...(state.personalRecords || {}) };
+    const ups = [];
+    workoutLogs.forEach(log => {
+      const numericSets = log.sets.filter(s => typeof s.reps === 'number' || (typeof s.reps === 'string' && /^\d+$/.test(s.reps)));
+      if (numericSets.length === 0) return;
+      const maxReps = Math.max(...numericSets.map(s => parseInt(s.reps, 10) || 0));
+      const maxWeight = log.sets.reduce((max, s) => {
+        const w = parseFloat(s.weight) || 0;
+        return w > max ? w : max;
+      }, 0);
+      const prev = records[log.exerciseId] || { maxReps: 0, maxWeight: 0 };
+      if (maxReps > prev.maxReps && maxReps > 0) {
+        ups.push(`${log.name}: ${maxReps} Wdh.`);
+        prev.maxReps = maxReps;
+      }
+      if (maxWeight > prev.maxWeight && maxWeight > 0) {
+        ups.push(`${log.name}: ${maxWeight} kg`);
+        prev.maxWeight = maxWeight;
+      }
+      records[log.exerciseId] = prev;
+    });
+    return { records, ups };
+  };
+
+  const finish = () => {
+    const { records, ups } = checkLevelUps(logs);
+    const workout = {
+      id: existing?.id || `w_${Date.now()}`,
+      date: today,
+      templateId,
+      startedAt: startTime,
+      duration: (Date.now() - startTime) / 1000,
+      exercises: logs,
+      done: true,
+      note: existing?.note || '',
+    };
+    const workouts = existing
+      ? state.workouts.map(w => w.id === existing.id ? workout : w)
+      : [...state.workouts, workout];
+    setState({ ...state, workouts, personalRecords: records });
+    setSavedWorkout(workout);
+    if (ups.length > 0) setLevelUps(ups);
+  };
+
+  if (savedWorkout && levelUps.length === 0) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center">
+        <Check size={48} className="text-lime-400 mb-4" />
+        <h1 className="text-3xl font-bold text-neutral-100 mb-2">Erledigt</h1>
+        <p className="text-neutral-400 mb-8">{template.name} · {formatDuration(savedWorkout.duration)}</p>
+        <div className="space-y-2 w-full max-w-sm">
+          <Button onClick={() => onExportWorkout(savedWorkout)} variant="orange" className="w-full">
+            <span className="flex items-center justify-center gap-2"><Share2 size={18} /> Bei Strava posten</span>
+          </Button>
+          <Button onClick={onBack} variant="secondary" className="w-full">Fertig</Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (levelUps.length > 0) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center">
+        <TrendingUp size={48} className="text-lime-400 mb-4" />
+        <h1 className="text-3xl font-bold text-neutral-100 mb-2">Level Up</h1>
+        <p className="text-neutral-400 mb-6">Neue persönliche Bestleistung.</p>
+        <div className="space-y-2 mb-8 w-full max-w-sm">
+          {levelUps.map((u, i) => (
+            <div key={i} className="bg-lime-400/10 border border-lime-400/30 rounded-xl p-3 text-lime-300 text-sm">{u}</div>
+          ))}
+        </div>
+        <div className="space-y-2 w-full max-w-sm">
+          <Button onClick={() => onExportWorkout(savedWorkout)} variant="orange" className="w-full">
+            <span className="flex items-center justify-center gap-2"><Share2 size={18} /> Bei Strava posten</span>
+          </Button>
+          <Button onClick={onBack} variant="secondary" className="w-full">Weiter</Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pb-32">
+      <div className="sticky top-0 bg-neutral-950 z-10 pt-6 pb-3 -mx-4 px-4 border-b border-neutral-900">
+        <div className="flex items-center gap-3 mb-2">
+          <button onClick={onBack} className="text-neutral-400 active:scale-95"><ChevronLeft size={24} /></button>
+          <div>
+            <p className="text-xs text-neutral-500 uppercase tracking-wider">Tag {template.day}</p>
+            <h1 className="text-xl font-bold text-neutral-100">{template.name}</h1>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-4 pt-4">
+        {logs.map((log, exIdx) => {
+          const ex = template.exercises[exIdx];
+          return (
+            <Card key={exIdx}>
+              <div className="flex justify-between items-start mb-3">
+                <div>
+                  <h3 className="font-semibold text-neutral-100">{log.name}</h3>
+                  {ex?.note && <p className="text-xs text-neutral-500 mt-0.5">{ex.note}</p>}
+                </div>
+              </div>
+
+              <div className="space-y-2 mb-3">
+                <div className="grid grid-cols-12 gap-2 text-xs text-neutral-500 px-1">
+                  <span className="col-span-1">#</span>
+                  <span className="col-span-3">Wdh.</span>
+                  {ex?.usesWeight && <span className="col-span-3">kg</span>}
+                  <span className={ex?.usesWeight ? 'col-span-3' : 'col-span-6'}>RPE</span>
+                  <span className="col-span-2"></span>
+                </div>
+                {log.sets.map((s, sIdx) => (
+                  <div key={sIdx} className="grid grid-cols-12 gap-2 items-center">
+                    <span className="col-span-1 text-neutral-500 text-sm">{sIdx + 1}</span>
+                    <input
+                      type="text" inputMode="numeric" value={s.reps}
+                      onChange={(e) => updateSet(exIdx, sIdx, 'reps', e.target.value)}
+                      className="col-span-3 bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-2 text-neutral-100 text-sm"
+                    />
+                    {ex?.usesWeight && (
+                      <input
+                        type="text" inputMode="decimal" value={s.weight}
+                        onChange={(e) => updateSet(exIdx, sIdx, 'weight', e.target.value)}
+                        className="col-span-3 bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-2 text-neutral-100 text-sm"
+                      />
+                    )}
+                    <input
+                      type="number" min="1" max="10" value={s.rpe}
+                      onChange={(e) => updateSet(exIdx, sIdx, 'rpe', Number(e.target.value))}
+                      className={`${ex?.usesWeight ? 'col-span-3' : 'col-span-6'} bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-2 text-neutral-100 text-sm`}
+                    />
+                    <button onClick={() => removeSet(exIdx, sIdx)} className="col-span-2 text-neutral-600 hover:text-red-400 flex justify-end pr-2">
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <button onClick={() => addSet(exIdx)} className="text-sm text-lime-400 hover:text-lime-300 flex items-center gap-1">
+                <Plus size={14} /> Set hinzufügen
+              </button>
+
+              <textarea
+                value={log.note}
+                onChange={(e) => updateNote(exIdx, e.target.value)}
+                placeholder="Notiz (optional)"
+                className="mt-3 w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-neutral-100 text-sm resize-none"
+                rows="2"
+              />
+            </Card>
+          );
+        })}
+      </div>
+
+      <div className="fixed bottom-20 left-0 right-0 px-4 z-20">
+        <div className="max-w-md mx-auto">
+          <Button onClick={finish} variant="primary" className="w-full shadow-2xl shadow-lime-400/20">
+            Workout abschließen
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ---------- Plan ----------
+const Plan = ({ state, setState }) => {
+  const [editingId, setEditingId] = useState(null);
+  const template = state.templates.find(t => t.id === editingId);
+  const [draft, setDraft] = useState(null);
+
+  useEffect(() => {
+    if (template) setDraft(JSON.parse(JSON.stringify(template)));
+    else setDraft(null);
+  }, [editingId]);
+
+  const saveDraft = () => {
+    setState({ ...state, templates: state.templates.map(t => t.id === draft.id ? draft : t) });
+    setEditingId(null);
+  };
+
+  const updateExercise = (idx, field, value) => {
+    const next = { ...draft, exercises: [...draft.exercises] };
+    next.exercises[idx] = { ...next.exercises[idx], [field]: value };
+    setDraft(next);
+  };
+
+  const removeExercise = (idx) => setDraft({ ...draft, exercises: draft.exercises.filter((_, i) => i !== idx) });
+  const addExercise = () => setDraft({
+    ...draft,
+    exercises: [...draft.exercises, { id: `ex_${Date.now()}`, name: 'Neue Übung', defaultSets: 3, defaultReps: 10, usesWeight: false, note: '' }],
+  });
+
+  if (draft && draft.type !== 'run') {
+    return (
+      <div className="pb-24">
+        <div className="flex items-center gap-3 pt-6 pb-4">
+          <button onClick={() => setEditingId(null)} className="text-neutral-400"><ChevronLeft size={24} /></button>
+          <h1 className="text-2xl font-bold text-neutral-100">Plan bearbeiten</h1>
+        </div>
+
+        <Card className="mb-4">
+          <label className="text-xs text-neutral-500 uppercase">Name</label>
+          <Input value={draft.name} onChange={(v) => setDraft({ ...draft, name: v })} />
+        </Card>
+
+        <div className="space-y-3">
+          {draft.exercises.map((ex, idx) => (
+            <Card key={ex.id}>
+              <div className="flex justify-between items-start mb-2">
+                <Input value={ex.name} onChange={(v) => updateExercise(idx, 'name', v)} className="text-base font-medium" />
+                <button onClick={() => removeExercise(idx)} className="ml-2 text-neutral-600 hover:text-red-400 py-3 px-2">
+                  <Trash2 size={18} />
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <div>
+                  <label className="text-xs text-neutral-500">Sets</label>
+                  <Input value={ex.defaultSets} onChange={(v) => updateExercise(idx, 'defaultSets', Number(v) || 1)} type="number" inputMode="numeric" />
+                </div>
+                <div>
+                  <label className="text-xs text-neutral-500">Wdh.</label>
+                  <Input value={ex.defaultReps} onChange={(v) => updateExercise(idx, 'defaultReps', v)} />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-neutral-400 py-2">
+                <input type="checkbox" checked={ex.usesWeight} onChange={(e) => updateExercise(idx, 'usesWeight', e.target.checked)} className="accent-lime-400 w-4 h-4" />
+                Gewicht tracken
+              </label>
+              <Input value={ex.note} onChange={(v) => updateExercise(idx, 'note', v)} placeholder="Notiz" className="text-sm" />
+            </Card>
+          ))}
+        </div>
+
+        <Button onClick={addExercise} variant="secondary" className="w-full mt-3">
+          <span className="flex items-center justify-center gap-2"><Plus size={18} /> Übung hinzufügen</span>
+        </Button>
+
+        <div className="fixed bottom-20 left-0 right-0 px-4 z-20">
+          <div className="max-w-md mx-auto flex gap-2">
+            <Button onClick={() => setEditingId(null)} variant="secondary" className="flex-1">Abbrechen</Button>
+            <Button onClick={saveDraft} variant="primary" className="flex-1">Speichern</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pb-24">
+      <div className="pt-6 pb-4">
+        <h1 className="text-3xl font-bold text-neutral-100">Plan</h1>
+        <p className="text-sm text-neutral-500 mt-1">4 Tage Kraft + Laufen flexibel</p>
+      </div>
+
+      <div className="space-y-3">
+        {state.templates.map(t => (
+          <Card key={t.id}>
+            <div className="flex justify-between items-start mb-3">
+              <div className="flex items-center gap-3">
+                {t.type === 'run' ? <MapPin size={20} className="text-orange-400" /> : <Dumbbell size={20} className="text-neutral-500" />}
+                <div>
+                  <p className="text-xs uppercase tracking-wider mb-0.5" style={{ color: t.type === 'run' ? '#fb923c' : '#a3e635' }}>
+                    {t.type === 'run' ? 'Laufen' : `Tag ${t.day}`}
+                  </p>
+                  <h3 className="text-lg font-semibold text-neutral-100">{t.name}</h3>
+                </div>
+              </div>
+              {t.type !== 'run' && (
+                <button onClick={() => setEditingId(t.id)} className="text-neutral-500 hover:text-neutral-300 p-2">
+                  <Edit3 size={18} />
+                </button>
+              )}
+            </div>
+            {t.type === 'run' ? (
+              <p className="text-sm text-neutral-400">GPS-Tracking mit Distanz, Zeit, Pace und Route. Frei wann immer du willst.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {t.exercises.map(ex => (
+                  <li key={ex.id} className="text-sm text-neutral-400 flex justify-between">
+                    <span>{ex.name}</span>
+                    <span className="text-neutral-600 tabular-nums">{ex.defaultSets} × {ex.defaultReps}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ---------- Stats (Week/Month/Year) ----------
+const Stats = ({ state, onShowProgression, onShowRun }) => {
+  const [view, setView] = useState('week');
+
+  const allActiveDays = useMemo(() => {
+    const set = new Set();
+    state.workouts.filter(w => w.done).forEach(w => set.add(w.date));
+    state.runs.forEach(r => set.add(r.date));
+    Object.entries(state.pushupDays).forEach(([date, day]) => {
+      const total = sumReps(day.sets);
+      if (total >= 100 || day.done) set.add(date);
+    });
+    return set;
+  }, [state]);
+
+  const streak = useMemo(() => calculateStreak(state.workouts, state.runs, state.pushupDays), [state]);
+
+  // Week view
+  const weekData = useMemo(() => {
+    if (view !== 'week') return null;
+    const weekStart = getWeekStart();
+    const days = [];
+    const d = new Date(weekStart);
+    for (let i = 0; i < 7; i++) {
+      const key = d.toISOString().slice(0, 10);
+      const pushups = state.pushupDays[key];
+      const total = pushups ? sumReps(pushups.sets) : 0;
+      const workouts = state.workouts.filter(w => w.date === key && w.done);
+      const runs = state.runs.filter(r => r.date === key);
+      days.push({
+        key,
+        label: d.toLocaleDateString('de-DE', { weekday: 'short' }),
+        date: d.getDate(),
+        pushups: total,
+        workouts: workouts.length,
+        runs: runs.length,
+        runKm: runs.reduce((a, r) => a + r.distance / 1000, 0),
+        active: allActiveDays.has(key),
+        isToday: key === todayKey(),
+      });
+      d.setDate(d.getDate() + 1);
+    }
+    return {
+      days,
+      weekStart,
+      trainingDays: days.filter(d => d.active).length,
+      weekPushups: days.reduce((a, d) => a + d.pushups, 0),
+      workouts: days.reduce((a, d) => a + d.workouts, 0),
+      runKm: days.reduce((a, d) => a + d.runKm, 0),
+    };
+  }, [view, state, allActiveDays]);
+
+  // Month view
+  const monthData = useMemo(() => {
+    if (view !== 'month') return null;
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const first = new Date(year, month, 1);
+    const last = new Date(year, month + 1, 0);
+    const offset = (first.getDay() + 6) % 7;
+    const cells = [];
+    for (let i = 0; i < offset; i++) cells.push(null);
+    for (let d = 1; d <= last.getDate(); d++) {
+      const date = new Date(year, month, d);
+      const key = date.toISOString().slice(0, 10);
+      const pushups = state.pushupDays[key];
+      const total = pushups ? sumReps(pushups.sets) : 0;
+      const workouts = state.workouts.filter(w => w.date === key && w.done).length;
+      const runs = state.runs.filter(r => r.date === key);
+      let intensity = 0;
+      if (workouts > 0 || runs.length > 0) intensity = 3;
+      else if (total >= 100 || pushups?.done) intensity = 2;
+      else if (total > 0) intensity = 1;
+      cells.push({ day: d, key, intensity, isToday: key === todayKey(), total, workouts, runs: runs.length });
+    }
+    const monthRuns = state.runs.filter(r => r.date.startsWith(`${year}-${String(month + 1).padStart(2, '0')}`));
+    const monthWorkouts = state.workouts.filter(w => w.done && w.date.startsWith(`${year}-${String(month + 1).padStart(2, '0')}`));
+    const monthPushups = Object.entries(state.pushupDays)
+      .filter(([k]) => k.startsWith(`${year}-${String(month + 1).padStart(2, '0')}`))
+      .reduce((a, [, day]) => a + sumReps(day.sets), 0);
+    return {
+      cells,
+      monthLabel: now.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' }),
+      runs: monthRuns.length,
+      runKm: monthRuns.reduce((a, r) => a + r.distance / 1000, 0),
+      workouts: monthWorkouts.length,
+      pushups: monthPushups,
+      activeDays: cells.filter(c => c && c.intensity > 0).length,
+    };
+  }, [view, state]);
+
+  // Year view
+  const yearData = useMemo(() => {
+    if (view !== 'year') return null;
+    const year = new Date().getFullYear();
+    const months = [];
+    for (let m = 0; m < 12; m++) {
+      const prefix = `${year}-${String(m + 1).padStart(2, '0')}`;
+      const runs = state.runs.filter(r => r.date.startsWith(prefix));
+      const workouts = state.workouts.filter(w => w.done && w.date.startsWith(prefix));
+      const pushups = Object.entries(state.pushupDays)
+        .filter(([k]) => k.startsWith(prefix))
+        .reduce((a, [, day]) => a + sumReps(day.sets), 0);
+      months.push({
+        label: new Date(year, m, 1).toLocaleDateString('de-DE', { month: 'short' }),
+        runs: runs.length,
+        runKm: runs.reduce((a, r) => a + r.distance / 1000, 0),
+        workouts: workouts.length,
+        pushups,
+      });
+    }
+    const totalRuns = months.reduce((a, m) => a + m.runs, 0);
+    const totalKm = months.reduce((a, m) => a + m.runKm, 0);
+    const totalWorkouts = months.reduce((a, m) => a + m.workouts, 0);
+    const totalPushups = months.reduce((a, m) => a + m.pushups, 0);
+    return { year, months, totalRuns, totalKm, totalWorkouts, totalPushups };
+  }, [view, state]);
+
+  const trackedExercises = useMemo(() => {
+    const map = new Map();
+    state.workouts.filter(w => w.done).forEach(w => {
+      w.exercises.forEach(ex => {
+        if (!map.has(ex.exerciseId)) map.set(ex.exerciseId, ex.name);
+      });
+    });
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [state.workouts]);
+
+  return (
+    <div className="pb-24">
+      <div className="pt-6 pb-4">
+        <h1 className="text-3xl font-bold text-neutral-100">Statistik</h1>
+      </div>
+
+      <div className="bg-neutral-900 rounded-xl p-1 flex gap-1 mb-4">
+        {['week', 'month', 'year'].map(v => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            className={`flex-1 py-2 rounded-lg text-sm font-medium ${view === v ? 'bg-neutral-700 text-neutral-100' : 'text-neutral-500'}`}
+          >
+            {v === 'week' ? 'Woche' : v === 'month' ? 'Monat' : 'Jahr'}
+          </button>
+        ))}
+      </div>
+
+      {view === 'week' && weekData && (
+        <>
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <Card>
+              <p className="text-xs text-neutral-500 uppercase tracking-wider mb-1">Aktive Tage</p>
+              <p className="text-3xl font-bold text-neutral-100 tabular-nums">{weekData.trainingDays}<span className="text-neutral-600 text-lg"> / 7</span></p>
+            </Card>
+            <Card>
+              <p className="text-xs text-neutral-500 uppercase tracking-wider mb-1">Workouts</p>
+              <p className="text-3xl font-bold text-neutral-100 tabular-nums">{weekData.workouts}</p>
+            </Card>
+            <Card>
+              <p className="text-xs text-neutral-500 uppercase tracking-wider mb-1">Push-ups</p>
+              <p className="text-3xl font-bold text-neutral-100 tabular-nums">{weekData.weekPushups}</p>
+            </Card>
+            <Card>
+              <p className="text-xs text-neutral-500 uppercase tracking-wider mb-1">Lauf-km</p>
+              <p className="text-3xl font-bold text-neutral-100 tabular-nums">{weekData.runKm.toFixed(1)}</p>
+            </Card>
+            <Card className="col-span-2">
+              <p className="text-xs text-neutral-500 uppercase tracking-wider mb-1">Streak</p>
+              <p className="text-3xl font-bold text-lime-400 tabular-nums">{streak} Tage</p>
+            </Card>
+          </div>
+
+          <Card>
+            <h2 className="text-lg font-semibold text-neutral-100 mb-4">Tage</h2>
+            <div className="space-y-3">
+              {weekData.days.map(d => (
+                <div key={d.key} className="flex items-center gap-3">
+                  <div className="w-12 text-center">
+                    <p className={`text-xs uppercase ${d.isToday ? 'text-lime-400' : 'text-neutral-500'}`}>{d.label}</p>
+                    <p className={`text-lg font-semibold tabular-nums ${d.isToday ? 'text-lime-400' : 'text-neutral-300'}`}>{d.date}</p>
+                  </div>
+                  <div className="flex-1">
+                    <div className="h-2 bg-neutral-800 rounded-full overflow-hidden">
+                      <div className={`h-full ${d.active ? 'bg-lime-400' : 'bg-neutral-700'}`} style={{ width: `${Math.min(100, (d.pushups / 100) * 100)}%` }} />
+                    </div>
+                    <p className="text-xs text-neutral-500 mt-1 truncate">
+                      {[d.runs > 0 && `${d.runKm.toFixed(1)}km`, d.workouts > 0 && `${d.workouts} Workout${d.workouts > 1 ? 's' : ''}`, d.pushups > 0 && `${d.pushups} Push-ups`].filter(Boolean).join(' · ') || '-'}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </>
+      )}
+
+      {view === 'month' && monthData && (
+        <>
+          <Card className="mb-4">
+            <p className="text-xs text-neutral-500 uppercase tracking-wider mb-3">{monthData.monthLabel}</p>
+            <div className="grid grid-cols-7 gap-1.5 mb-3 text-center">
+              {['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(d => (
+                <span key={d} className="text-xs text-neutral-600">{d}</span>
+              ))}
+              {monthData.cells.map((c, i) => {
+                if (!c) return <span key={i} />;
+                const colors = ['bg-neutral-800', 'bg-lime-900', 'bg-lime-700', 'bg-lime-400'];
+                return (
+                  <div key={i} className={`aspect-square rounded ${colors[c.intensity]} ${c.isToday ? 'ring-2 ring-lime-400' : ''} flex items-center justify-center`}>
+                    <span className={`text-xs ${c.intensity >= 2 ? 'text-neutral-900' : 'text-neutral-500'}`}>{c.day}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex items-center justify-end gap-1.5 text-xs text-neutral-600 pt-2">
+              <span>weniger</span>
+              <div className="w-3 h-3 rounded bg-neutral-800" />
+              <div className="w-3 h-3 rounded bg-lime-900" />
+              <div className="w-3 h-3 rounded bg-lime-700" />
+              <div className="w-3 h-3 rounded bg-lime-400" />
+              <span>mehr</span>
+            </div>
+          </Card>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Card><p className="text-xs text-neutral-500 mb-1">Aktive Tage</p><p className="text-3xl font-bold text-neutral-100 tabular-nums">{monthData.activeDays}</p></Card>
+            <Card><p className="text-xs text-neutral-500 mb-1">Workouts</p><p className="text-3xl font-bold text-neutral-100 tabular-nums">{monthData.workouts}</p></Card>
+            <Card><p className="text-xs text-neutral-500 mb-1">Läufe / km</p><p className="text-2xl font-bold text-neutral-100 tabular-nums">{monthData.runs}<span className="text-neutral-600 text-base"> · {monthData.runKm.toFixed(1)}</span></p></Card>
+            <Card><p className="text-xs text-neutral-500 mb-1">Push-ups</p><p className="text-3xl font-bold text-neutral-100 tabular-nums">{monthData.pushups}</p></Card>
+          </div>
+        </>
+      )}
+
+      {view === 'year' && yearData && (
+        <>
+          <Card className="mb-4">
+            <p className="text-xs text-neutral-500 uppercase tracking-wider mb-3">{yearData.year}</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div><p className="text-xs text-neutral-500">Workouts</p><p className="text-2xl font-bold text-neutral-100">{yearData.totalWorkouts}</p></div>
+              <div><p className="text-xs text-neutral-500">Läufe</p><p className="text-2xl font-bold text-neutral-100">{yearData.totalRuns}</p></div>
+              <div><p className="text-xs text-neutral-500">Lauf-km</p><p className="text-2xl font-bold text-neutral-100">{yearData.totalKm.toFixed(1)}</p></div>
+              <div><p className="text-xs text-neutral-500">Push-ups</p><p className="text-2xl font-bold text-neutral-100">{yearData.totalPushups}</p></div>
+            </div>
+          </Card>
+
+          <Card className="mb-4">
+            <p className="text-xs text-neutral-500 uppercase tracking-wider mb-3">Workouts pro Monat</p>
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={yearData.months}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
+                <XAxis dataKey="label" tick={{ fill: '#737373', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#737373', fontSize: 11 }} axisLine={false} tickLine={false} width={20} />
+                <Tooltip contentStyle={{ background: '#171717', border: '1px solid #262626', borderRadius: 8, fontSize: 12 }} />
+                <Bar dataKey="workouts" fill="#a3e635" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </Card>
+
+          <Card className="mb-4">
+            <p className="text-xs text-neutral-500 uppercase tracking-wider mb-3">Lauf-km pro Monat</p>
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={yearData.months}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
+                <XAxis dataKey="label" tick={{ fill: '#737373', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#737373', fontSize: 11 }} axisLine={false} tickLine={false} width={20} />
+                <Tooltip contentStyle={{ background: '#171717', border: '1px solid #262626', borderRadius: 8, fontSize: 12 }} />
+                <Bar dataKey="runKm" fill="#fb923c" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </Card>
+        </>
+      )}
+
+      {state.runs.length > 0 && (
+        <Card className="mt-4">
+          <h2 className="text-lg font-semibold text-neutral-100 mb-3 flex items-center gap-2">
+            <MapPin size={18} /> Läufe
+          </h2>
+          <div className="space-y-1">
+            {[...state.runs].sort((a, b) => b.startedAt - a.startedAt).slice(0, 20).map(r => (
+              <button
+                key={r.id}
+                onClick={() => onShowRun(r.id)}
+                className="w-full text-left bg-neutral-800 hover:bg-neutral-700 rounded-lg px-3 py-2.5 flex items-center justify-between"
+              >
+                <div>
+                  <p className="text-sm text-neutral-200">{(r.distance / 1000).toFixed(2)} km · {formatDuration(r.duration)}</p>
+                  <p className="text-xs text-neutral-500">{formatDateShort(r.date)}</p>
+                </div>
+                <ChevronLeft size={16} className="text-neutral-500 rotate-180" />
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {trackedExercises.length > 0 && (
+        <Card className="mt-4">
+          <h2 className="text-lg font-semibold text-neutral-100 mb-3 flex items-center gap-2">
+            <BarChart3 size={18} /> Fortschritt pro Übung
+          </h2>
+          <div className="space-y-1">
+            {trackedExercises.map(ex => (
+              <button
+                key={ex.id}
+                onClick={() => onShowProgression(ex.id)}
+                className="w-full text-left bg-neutral-800 hover:bg-neutral-700 rounded-lg px-3 py-2.5 text-sm text-neutral-200 flex items-center justify-between"
+              >
+                <span>{ex.name}</span>
+                <ChevronLeft size={16} className="text-neutral-500 rotate-180" />
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+};
+
+// ---------- Exercise Progression ----------
+const Progression = ({ state, exerciseId, onBack }) => {
+  const data = useMemo(() => {
+    const points = [];
+    state.workouts.filter(w => w.done).forEach(w => {
+      const log = w.exercises.find(e => e.exerciseId === exerciseId);
+      if (!log) return;
+      const numericReps = log.sets.map(s => parseInt(s.reps, 10)).filter(n => !isNaN(n));
+      const weights = log.sets.map(s => parseFloat(s.weight)).filter(n => !isNaN(n));
+      const volumes = log.sets.map(s => {
+        const r = parseInt(s.reps, 10) || 0;
+        const wt = parseFloat(s.weight) || 0;
+        return wt > 0 ? r * wt : r;
+      });
+      points.push({
+        date: w.date,
+        label: formatDateShort(w.date),
+        maxReps: numericReps.length ? Math.max(...numericReps) : 0,
+        maxWeight: weights.length ? Math.max(...weights) : 0,
+        volume: volumes.reduce((a, b) => a + b, 0),
+        avgRpe: log.sets.length ? log.sets.reduce((a, s) => a + (s.rpe || 0), 0) / log.sets.length : 0,
+      });
+    });
+    return points.sort((a, b) => a.date.localeCompare(b.date));
+  }, [state, exerciseId]);
+
+  const name = data.length > 0
+    ? state.workouts.flatMap(w => w.exercises).find(e => e.exerciseId === exerciseId)?.name
+    : exerciseId;
+
+  const hasWeight = data.some(d => d.maxWeight > 0);
+
+  if (data.length === 0) {
+    return (
+      <div className="pb-24">
+        <div className="flex items-center gap-3 pt-6 pb-4">
+          <button onClick={onBack} className="text-neutral-400"><ChevronLeft size={24} /></button>
+          <h1 className="text-2xl font-bold text-neutral-100">{name}</h1>
+        </div>
+        <p className="text-neutral-500 text-center py-12">Noch keine Daten.</p>
+      </div>
+    );
+  }
+
+  const latest = data[data.length - 1];
+  const first = data[0];
+
+  return (
+    <div className="pb-24">
+      <div className="flex items-center gap-3 pt-6 pb-4">
+        <button onClick={onBack} className="text-neutral-400"><ChevronLeft size={24} /></button>
+        <h1 className="text-2xl font-bold text-neutral-100">{name}</h1>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <Card>
+          <p className="text-xs text-neutral-500 mb-1">Max Wdh</p>
+          <p className="text-3xl font-bold text-neutral-100 tabular-nums">{Math.max(...data.map(d => d.maxReps))}</p>
+        </Card>
+        {hasWeight && (
+          <Card>
+            <p className="text-xs text-neutral-500 mb-1">Max Gewicht</p>
+            <p className="text-3xl font-bold text-neutral-100 tabular-nums">{Math.max(...data.map(d => d.maxWeight))}<span className="text-neutral-600 text-lg"> kg</span></p>
+          </Card>
+        )}
+        <Card className={hasWeight ? '' : 'col-span-2'}>
+          <p className="text-xs text-neutral-500 mb-1">Sessions</p>
+          <p className="text-3xl font-bold text-neutral-100 tabular-nums">{data.length}</p>
+        </Card>
+      </div>
+
+      <Card className="mb-3">
+        <p className="text-xs text-neutral-500 uppercase tracking-wider mb-3">Max Wdh über Zeit</p>
+        <ResponsiveContainer width="100%" height={180}>
+          <LineChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
+            <XAxis dataKey="label" tick={{ fill: '#737373', fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fill: '#737373', fontSize: 11 }} axisLine={false} tickLine={false} width={28} />
+            <Tooltip contentStyle={{ background: '#171717', border: '1px solid #262626', borderRadius: 8, fontSize: 12 }} />
+            <Line type="monotone" dataKey="maxReps" stroke="#a3e635" strokeWidth={2.5} dot={{ fill: '#a3e635', r: 4 }} />
+          </LineChart>
+        </ResponsiveContainer>
+      </Card>
+
+      {hasWeight && (
+        <Card className="mb-3">
+          <p className="text-xs text-neutral-500 uppercase tracking-wider mb-3">Max Gewicht (kg)</p>
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={data}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
+              <XAxis dataKey="label" tick={{ fill: '#737373', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#737373', fontSize: 11 }} axisLine={false} tickLine={false} width={28} />
+              <Tooltip contentStyle={{ background: '#171717', border: '1px solid #262626', borderRadius: 8, fontSize: 12 }} />
+              <Line type="monotone" dataKey="maxWeight" stroke="#fb923c" strokeWidth={2.5} dot={{ fill: '#fb923c', r: 4 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </Card>
+      )}
+
+      <Card>
+        <p className="text-xs text-neutral-500 uppercase tracking-wider mb-3">Volumen (Wdh × kg)</p>
+        <ResponsiveContainer width="100%" height={180}>
+          <BarChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
+            <XAxis dataKey="label" tick={{ fill: '#737373', fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fill: '#737373', fontSize: 11 }} axisLine={false} tickLine={false} width={28} />
+            <Tooltip contentStyle={{ background: '#171717', border: '1px solid #262626', borderRadius: 8, fontSize: 12 }} />
+            <Bar dataKey="volume" fill="#a3e635" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </Card>
+
+      <p className="text-center text-neutral-600 text-xs mt-4">
+        Von {first.maxReps} Wdh am {formatDateShort(first.date)} auf {latest.maxReps} am {formatDateShort(latest.date)}.
+      </p>
+    </div>
+  );
+};
+
+// ---------- Check-in (unchanged) ----------
+const CheckIn = ({ state, setState }) => {
+  const weekStart = getWeekStart();
+  const existing = state.checkIns.find(c => c.weekStart === weekStart);
+  const [draft, setDraft] = useState(existing || {
+    weekStart, weight: '', waist: '', photoData: null,
+    energy: 7, sleep: 7, motivation: 7, note: '',
+  });
+  const [showHistory, setShowHistory] = useState(false);
+
+  const save = () => {
+    const checkIns = existing
+      ? state.checkIns.map(c => c.weekStart === weekStart ? draft : c)
+      : [...state.checkIns, draft];
+    setState({ ...state, checkIns });
+  };
+
+  const handlePhoto = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setDraft({ ...draft, photoData: ev.target.result });
+    reader.readAsDataURL(file);
+  };
+
+  if (showHistory) {
+    const sorted = [...state.checkIns].sort((a, b) => b.weekStart.localeCompare(a.weekStart));
+    return (
+      <div className="pb-24">
+        <div className="flex items-center gap-3 pt-6 pb-4">
+          <button onClick={() => setShowHistory(false)} className="text-neutral-400"><ChevronLeft size={24} /></button>
+          <h1 className="text-2xl font-bold text-neutral-100">Verlauf</h1>
+        </div>
+        {sorted.length === 0 && <p className="text-neutral-500 text-center py-12">Noch keine Einträge.</p>}
+        <div className="space-y-3">
+          {sorted.map(c => (
+            <Card key={c.weekStart}>
+              <p className="text-xs text-neutral-500 uppercase tracking-wider mb-2">Woche ab {formatDateShort(c.weekStart)}</p>
+              <div className="grid grid-cols-3 gap-2 text-sm">
+                {c.weight && <div><p className="text-neutral-500 text-xs">Gewicht</p><p className="text-neutral-100">{c.weight} kg</p></div>}
+                {c.waist && <div><p className="text-neutral-500 text-xs">Bauch</p><p className="text-neutral-100">{c.waist} cm</p></div>}
+                <div><p className="text-neutral-500 text-xs">Energie</p><p className="text-neutral-100">{c.energy}/10</p></div>
+                <div><p className="text-neutral-500 text-xs">Schlaf</p><p className="text-neutral-100">{c.sleep}/10</p></div>
+                <div><p className="text-neutral-500 text-xs">Motivation</p><p className="text-neutral-100">{c.motivation}/10</p></div>
+              </div>
+              {c.note && <p className="text-sm text-neutral-400 mt-2 italic">{c.note}</p>}
+              {c.photoData && <img src={c.photoData} alt="" className="mt-3 rounded-lg max-h-48 w-auto" />}
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pb-24">
+      <div className="flex justify-between items-start pt-6 pb-4">
+        <div>
+          <h1 className="text-3xl font-bold text-neutral-100">Check-in</h1>
+          <p className="text-sm text-neutral-500 mt-1">Woche ab {formatDateShort(weekStart)}</p>
+        </div>
+        <Button variant="ghost" onClick={() => setShowHistory(true)} className="text-sm">Verlauf</Button>
+      </div>
+
+      <div className="space-y-4">
+        <Card>
+          <h3 className="text-sm uppercase tracking-wider text-neutral-500 mb-3">Körper (optional)</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-neutral-500">Gewicht (kg)</label>
+              <Input value={draft.weight} onChange={(v) => setDraft({ ...draft, weight: v })} type="text" inputMode="decimal" />
+            </div>
+            <div>
+              <label className="text-xs text-neutral-500">Bauchumfang (cm)</label>
+              <Input value={draft.waist} onChange={(v) => setDraft({ ...draft, waist: v })} type="text" inputMode="decimal" />
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <h3 className="text-sm uppercase tracking-wider text-neutral-500 mb-4">Befinden</h3>
+          <div className="space-y-4">
+            <Slider value={draft.energy} onChange={(v) => setDraft({ ...draft, energy: v })} label="Energielevel" />
+            <Slider value={draft.sleep} onChange={(v) => setDraft({ ...draft, sleep: v })} label="Schlafqualität" />
+            <Slider value={draft.motivation} onChange={(v) => setDraft({ ...draft, motivation: v })} label="Motivation" />
+          </div>
+        </Card>
+
+        <Card>
+          <h3 className="text-sm uppercase tracking-wider text-neutral-500 mb-3">Foto (optional)</h3>
+          {draft.photoData && <img src={draft.photoData} alt="" className="rounded-lg mb-3 max-h-64 w-auto" />}
+          <label className="block">
+            <input type="file" accept="image/*" capture="environment" onChange={handlePhoto} className="hidden" />
+            <span className="bg-neutral-800 text-neutral-200 rounded-xl px-4 py-3 text-sm hover:bg-neutral-700 cursor-pointer inline-block">
+              {draft.photoData ? 'Foto ändern' : 'Foto aufnehmen'}
+            </span>
+          </label>
+          {draft.photoData && <button onClick={() => setDraft({ ...draft, photoData: null })} className="ml-2 text-red-400 text-sm">Entfernen</button>}
+        </Card>
+
+        <Card>
+          <h3 className="text-sm uppercase tracking-wider text-neutral-500 mb-3">Notiz</h3>
+          <textarea
+            value={draft.note}
+            onChange={(e) => setDraft({ ...draft, note: e.target.value })}
+            className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-neutral-100 text-sm resize-none"
+            rows="3" placeholder="Was war diese Woche los?"
+          />
+        </Card>
+
+        <Button onClick={save} variant="primary" className="w-full">Speichern</Button>
+      </div>
+    </div>
+  );
+};
+
+// ---------- Strava Export Helpers ----------
+const downloadFile = (content, filename, mime) => {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+const generateRunGPX = (run) => {
+  if (!run.points || run.points.length === 0) return null;
+  const startISO = new Date(run.startedAt).toISOString();
+  const trkpts = run.points.map((p, i) => {
+    const t = new Date(run.startedAt + (i / Math.max(1, run.points.length - 1)) * run.duration * 1000).toISOString();
+    return `      <trkpt lat="${p.lat}" lon="${p.lon}"><time>${t}</time></trkpt>`;
+  }).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Konsistenz" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata><time>${startISO}</time></metadata>
+  <trk>
+    <name>Lauf ${formatDateShort(run.date)}</name>
+    <type>Run</type>
+    <trkseg>
+${trkpts}
+    </trkseg>
+  </trk>
+</gpx>`;
+};
+
+const exportRunGPX = (run) => {
+  const gpx = generateRunGPX(run);
+  if (!gpx) {
+    alert('Keine GPS-Punkte vorhanden.');
+    return;
+  }
+  downloadFile(gpx, `lauf_${run.date}.gpx`, 'application/gpx+xml');
+};
+
+const exportWorkoutToStrava = (workout, template) => {
+  // Krafttraining hat kein GPS, also bauen wir einen Text zum Kopieren + öffnen die Strava-Upload-Seite
+  const km = 0;
+  const duration = workout.duration || 0;
+  const lines = workout.exercises.map(ex => {
+    const sets = ex.sets.map(s => {
+      const r = s.reps || '?';
+      const w = s.weight ? `${s.weight}kg` : '';
+      const rpe = s.rpe ? `RPE${s.rpe}` : '';
+      return [r + 'x', w, rpe].filter(Boolean).join(' ');
+    }).join(', ');
+    return `${ex.name}: ${sets}`;
+  });
+  const desc = `${template?.name || 'Workout'} · ${formatDuration(duration)}\n\n${lines.join('\n')}`;
+
+  // In Zwischenablage kopieren
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(desc).then(() => {
+      alert('Beschreibung in Zwischenablage kopiert.\n\nStrava öffnet jetzt → Aktivität hinzufügen → manuell → Beschreibung einfügen.');
+      window.open('https://www.strava.com/upload/manual', '_blank');
+    }).catch(() => {
+      // Fallback: download als txt
+      downloadFile(desc, `workout_${workout.date}.txt`, 'text/plain');
+      window.open('https://www.strava.com/upload/manual', '_blank');
+    });
+  } else {
+    downloadFile(desc, `workout_${workout.date}.txt`, 'text/plain');
+    window.open('https://www.strava.com/upload/manual', '_blank');
+  }
+};
+
+// ---------- Settings ----------
+const SettingsView = ({ state, setState }) => {
+  const exportData = () => {
+    downloadFile(JSON.stringify(state, null, 2), `konsistenz_${todayKey()}.json`, 'application/json');
+  };
+
+  const importData = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (window.confirm('Bestehende Daten überschreiben?')) setState(data);
+      } catch (err) {
+        alert('Datei nicht lesbar');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const resetAll = () => {
+    if (window.confirm('Wirklich alle Daten löschen? Das kann nicht rückgängig gemacht werden.')) {
+      localStorage.removeItem(STORAGE_KEY);
+      setState(initialState());
+    }
+  };
+
+  const stats = {
+    workouts: state.workouts.filter(w => w.done).length,
+    runs: state.runs.length,
+    days: Object.keys(state.pushupDays).length,
+    checkIns: state.checkIns.length,
+  };
+
+  return (
+    <div className="pb-24">
+      <div className="pt-6 pb-4">
+        <h1 className="text-3xl font-bold text-neutral-100">Einstellungen</h1>
+      </div>
+
+      <Card className="mb-4">
+        <h3 className="text-sm uppercase tracking-wider text-neutral-500 mb-3">Daten</h3>
+        <div className="grid grid-cols-2 gap-3 text-center">
+          <div><p className="text-2xl font-bold text-neutral-100">{stats.workouts}</p><p className="text-xs text-neutral-500">Workouts</p></div>
+          <div><p className="text-2xl font-bold text-neutral-100">{stats.runs}</p><p className="text-xs text-neutral-500">Läufe</p></div>
+          <div><p className="text-2xl font-bold text-neutral-100">{stats.days}</p><p className="text-xs text-neutral-500">Push-up Tage</p></div>
+          <div><p className="text-2xl font-bold text-neutral-100">{stats.checkIns}</p><p className="text-xs text-neutral-500">Check-ins</p></div>
+        </div>
+      </Card>
+
+      <div className="space-y-3">
+        <Button onClick={exportData} variant="secondary" className="w-full">
+          <span className="flex items-center justify-center gap-2"><Download size={18} /> Daten exportieren (JSON)</span>
+        </Button>
+        <label className="block">
+          <input type="file" accept="application/json" onChange={importData} className="hidden" />
+          <span className="bg-neutral-800 text-neutral-100 hover:bg-neutral-700 font-medium rounded-xl px-5 py-3 text-base flex items-center justify-center gap-2 cursor-pointer">
+            <Upload size={18} /> Daten importieren
+          </span>
+        </label>
+        <Button onClick={resetAll} variant="danger" className="w-full">Alle Daten löschen</Button>
+      </div>
+
+      <Card className="mt-6">
+        <h3 className="text-sm uppercase tracking-wider text-neutral-500 mb-2">Strava</h3>
+        <p className="text-sm text-neutral-400 mb-2">Läufe: GPX-Export nach Lauf-Ende oder im Lauf-Detail. In Strava unter "+" → "Aktivität hinzufügen" → "Hochladen" auswählen.</p>
+        <p className="text-sm text-neutral-400">Krafttraining: Workout-Beschreibung wird in die Zwischenablage kopiert, Strava öffnet im neuen Tab.</p>
+      </Card>
+
+      <p className="text-center text-neutral-600 text-xs mt-8">Konsistenz · v2.0 · Lokale Speicherung</p>
+    </div>
+  );
+};
+
+// ---------- Nav ----------
+const Nav = ({ tab, setTab }) => {
+  const items = [
+    { id: 'home', icon: Home, label: 'Heute' },
+    { id: 'plan', icon: Dumbbell, label: 'Plan' },
+    { id: 'stats', icon: BarChart3, label: 'Statistik' },
+    { id: 'checkin', icon: Heart, label: 'Check-in' },
+    { id: 'settings', icon: Settings, label: 'Mehr' },
+  ];
+  return (
+    <nav className="fixed bottom-0 left-0 right-0 bg-neutral-950/95 backdrop-blur border-t border-neutral-900 z-30">
+      <div className="max-w-md mx-auto grid grid-cols-5">
+        {items.map(item => {
+          const Icon = item.icon;
+          const active = tab === item.id;
+          return (
+            <button key={item.id} onClick={() => setTab(item.id)} className={`flex flex-col items-center gap-1 py-3 ${active ? 'text-lime-400' : 'text-neutral-500'}`}>
+              <Icon size={20} />
+              <span className="text-[10px] font-medium">{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+};
+
+// ---------- Root ----------
+function App() {
+  const [state, setState] = useState(initialState);
+  const [tab, setTab] = useState('home');
+  const [activeWorkout, setActiveWorkout] = useState(null);
+  const [activeRun, setActiveRun] = useState(false);
+  const [viewRunId, setViewRunId] = useState(null);
+  const [progressionExId, setProgressionExId] = useState(null);
+
+  useEffect(() => { saveState(state); }, [state]);
+
+  const viewedRun = viewRunId ? state.runs.find(r => r.id === viewRunId) : null;
+
+  const handleExportWorkout = (workout) => {
+    const template = state.templates.find(t => t.id === workout.templateId);
+    exportWorkoutToStrava(workout, template);
+  };
+
+  const handleDeleteRun = (runId) => {
+    setState({ ...state, runs: state.runs.filter(r => r.id !== runId) });
+    setViewRunId(null);
+  };
+
+  return (
+    <div className="min-h-screen bg-neutral-950 text-neutral-100" style={{ fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" }}>
+      <div className="max-w-md mx-auto px-4">
+        {activeRun ? (
+          <RunTracker state={state} setState={setState} onBack={() => setActiveRun(false)} />
+        ) : viewedRun ? (
+          <RunDetail run={viewedRun} onBack={() => setViewRunId(null)} onDelete={handleDeleteRun} onExport={exportRunGPX} />
+        ) : progressionExId ? (
+          <Progression state={state} exerciseId={progressionExId} onBack={() => setProgressionExId(null)} />
+        ) : activeWorkout ? (
+          <WorkoutSession
+            state={state} setState={setState} templateId={activeWorkout}
+            onBack={() => setActiveWorkout(null)} onExportWorkout={handleExportWorkout}
+          />
+        ) : (
+          <>
+            {tab === 'home' && <Dashboard state={state} setState={setState} onStartWorkout={setActiveWorkout} onStartRun={() => setActiveRun(true)} onShowRun={setViewRunId} />}
+            {tab === 'plan' && <Plan state={state} setState={setState} />}
+            {tab === 'stats' && <Stats state={state} onShowProgression={setProgressionExId} onShowRun={setViewRunId} />}
+            {tab === 'checkin' && <CheckIn state={state} setState={setState} />}
+            {tab === 'settings' && <SettingsView state={state} setState={setState} />}
+          </>
+        )}
+      </div>
+      {!activeWorkout && !activeRun && !viewedRun && !progressionExId && <Nav tab={tab} setTab={setTab} />}
+    </div>
+  );
+}
+
+
+    // Render
+    document.getElementById('loading').remove();
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(App));
+  </script>
+</body>
+</html>
